@@ -2,7 +2,7 @@
 
 Base: upstream stable v1.6.8 (`9fabe6478ebf32c8aadeae5ccd6d632269175145`). The module declaration remains `github.com/eclipse-keypont/crypto11`; consumers replace it with an immutable revision of `github.com/cpoile/crypto11`.
 
-The production patch preserves native errors in four AES-GCM wrappers, identifies returned Seal operation errors with `*SealError`, and releases the persistent session before the module reference when Configure fails. `cipher.AEAD` signatures, the session pool, and shared module reference counting remain unchanged. Invalid Seal nonce lengths and arbitrary underlying panics are not marked. Callers recovering Seal must assert the exact marker type and re-panic everything else. Error text is diagnostic, not a safe user response.
+The production patch preserves native errors in four AES-GCM wrappers, identifies returned Seal operation errors with `*SealError`, and releases the persistent session before the module reference when Configure fails. `cipher.AEAD` signatures, the session pool, and shared module reference counting remain unchanged. Both Seal and Open reject invalid nonce lengths before native use, as required by NonceSize. These caller-misuse panics and arbitrary underlying panics are not marked. Callers recovering Seal must assert the exact marker type and re-panic everything else. Error text is diagnostic, not a safe user response.
 
 CloseSession failure does not replace the primary initialization error and is not retried. A device session may remain until the final module owner closes; no stronger native-call cancellation or recovery is promised. Do not Logout or CloseAllSessions during rollback.
 

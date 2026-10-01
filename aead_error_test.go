@@ -16,10 +16,13 @@ func TestSealErrorCause(t *testing.T) {
 	require.ErrorIs(t, marked, cause)
 }
 
-func TestSealNonceMisuse(t *testing.T) {
+func TestAEADNonceMisuse(t *testing.T) {
 	// A malformed nonce must panic before touching even an uninitialized key.
 	g := genericAead{nonceSize: 12}
 	require.PanicsWithValue(t, "crypto11: incorrect nonce length given to GCM", func() {
 		g.Seal(nil, make([]byte, 11), nil, nil)
+	})
+	require.PanicsWithValue(t, "crypto11: incorrect nonce length given to GCM", func() {
+		g.Open(nil, make([]byte, 11), nil, nil)
 	})
 }

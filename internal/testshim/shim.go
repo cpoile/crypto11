@@ -23,11 +23,34 @@ static void set_fault(unsigned long i, unsigned long code) { fault(i, code); }
 import "C"
 import "unsafe"
 
+// IDs match the fixed test_counter/test_fault protocol in forward.c.
+type CounterID uint
+type FaultID uint
+
+const (
+	Opened CounterID = iota
+	Closed
+	Finalized
+	Live
+	CloseAttempts
+	InvalidCloses
+)
+const (
+	NoFault FaultID = iota
+	Initialize
+	OpenSession
+	CloseSession
+	EncryptInit
+	Encrypt
+	DecryptInit
+	Decrypt
+)
+
 // Open intentionally retains the module so counters survive last-owner finalization.
 func Open(path string) bool {
 	p := C.CString(path)
 	defer C.free(unsafe.Pointer(p))
 	return C.open_shim(p) != 0
 }
-func Counter(index uint) uint    { return uint(C.read_counter(C.ulong(index))) }
-func Fault(operation, code uint) { C.set_fault(C.ulong(operation), C.ulong(code)) }
+func Counter(index CounterID) uint       { return uint(C.read_counter(C.ulong(index))) }
+func Fault(operation FaultID, code uint) { C.set_fault(C.ulong(operation), C.ulong(code)) }

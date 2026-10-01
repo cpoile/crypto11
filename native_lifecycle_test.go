@@ -16,8 +16,8 @@ func nativeConfig(t *testing.T) *Config {
 	path := os.Getenv("CRYPTO11_TEST_SHIM")
 	require.NotEmpty(t, path, "mandatory forwarding module unavailable")
 	require.True(t, testshim.Open(path), "cannot load mandatory forwarding module")
-	testshim.Fault(0, 0)
-	t.Cleanup(func() { testshim.Fault(0, 0) })
+	testshim.Fault(testshim.NoFault, 0)
+	t.Cleanup(func() { testshim.Fault(testshim.NoFault, 0) })
 	cfg, err := getConfig("config")
 	require.NoError(t, err)
 	cfg.Path = path
@@ -48,22 +48,22 @@ func TestInvalidPinDoesntDestroyLibrary(t *testing.T) {
 	require.NoError(t, err)
 	aead, err := key.NewGCM()
 	require.NoError(t, err)
-	finalizes := testshim.Counter(2)
+	finalizes := testshim.Counter(testshim.Finalized)
 	refs := references(cfg.Path)
 	wrong := *cfg
 	wrong.TokenLabel = "token2"
 	wrong.Pin = "this_should_be_wrong_pin"
 	for i := 0; i < 8; i++ {
-		baseline := testshim.Counter(3)
-		opens, closes := testshim.Counter(0), testshim.Counter(1)
+		baseline := testshim.Counter(testshim.Live)
+		opens, closes := testshim.Counter(testshim.Opened), testshim.Counter(testshim.Closed)
 		failed, err := Configure(&wrong)
 		require.Nil(t, failed)
 		nativeCode(t, err, pkcs11.CKR_PIN_INCORRECT)
-		require.Equal(t, opens+1, testshim.Counter(0))
-		require.Equal(t, closes+1, testshim.Counter(1))
-		require.Equal(t, baseline, testshim.Counter(3), "failed login leaked a native handle")
+		require.Equal(t, opens+1, testshim.Counter(testshim.Opened))
+		require.Equal(t, closes+1, testshim.Counter(testshim.Closed))
+		require.Equal(t, baseline, testshim.Counter(testshim.Live), "failed login leaked a native handle")
 		require.Equal(t, refs, references(cfg.Path), "failed login leaked module reference")
-		require.Equal(t, finalizes, testshim.Counter(2), "healthy owner's module was finalized")
+		require.Equal(t, finalizes, testshim.Counter(testshim.Finalized), "healthy owner's module was finalized")
 		nonce := randomBytes()[:aead.NonceSize()]
 		ciphertext := aead.Seal(nil, nonce, []byte("healthy"), nil)
 		plain, err := aead.Open(nil, nonce, ciphertext, nil)
@@ -74,24 +74,24 @@ func TestInvalidPinDoesntDestroyLibrary(t *testing.T) {
 	require.NoError(t, healthy.Close())
 	healthy = nil
 	require.Zero(t, references(cfg.Path))
-	require.Zero(t, testshim.Counter(3))
-	require.Equal(t, finalizes+1, testshim.Counter(2))
+	require.Zero(t, testshim.Counter(testshim.Live))
+	require.Equal(t, finalizes+1, testshim.Counter(testshim.Finalized))
 	reopened, err := Configure(cfg)
 	require.NoError(t, err)
 	require.NoError(t, reopened.Close())
-	require.Equal(t, finalizes+2, testshim.Counter(2))
-	require.Zero(t, testshim.Counter(5), "unowned/double session close")
+	require.Equal(t, finalizes+2, testshim.Counter(testshim.Finalized))
+	require.Zero(t, testshim.Counter(testshim.InvalidCloses), "unowned/double session close")
 }
 
 func TestNativeFailureOwnership(t *testing.T) {
 	cfg := nativeConfig(t)
-	testshim.Fault(1, pkcs11.CKR_DEVICE_ERROR)
+	testshim.Fault(testshim.Initialize, pkcs11.CKR_DEVICE_ERROR)
 	failed, err := Configure(cfg)
 	require.Nil(t, failed)
 	nativeCode(t, err, pkcs11.CKR_DEVICE_ERROR)
 	require.Zero(t, references(cfg.Path))
-	require.Zero(t, testshim.Counter(3))
-	testshim.Fault(0, 0)
+	require.Zero(t, testshim.Counter(testshim.Live))
+	testshim.Fault(testshim.NoFault, 0)
 	healthy, err := Configure(cfg)
 	require.NoError(t, err)
 	defer func() {
@@ -99,53 +99,53 @@ func TestNativeFailureOwnership(t *testing.T) {
 			_ = healthy.Close()
 		}
 	}()
-	baseline, refs := testshim.Counter(3), references(cfg.Path)
-	attempts, finals := testshim.Counter(4), testshim.Counter(2)
+	baseline, refs := testshim.Counter(testshim.Live), references(cfg.Path)
+	attempts, finals := testshim.Counter(testshim.CloseAttempts), testshim.Counter(testshim.Finalized)
 	missing := *cfg
 	missing.TokenLabel = "missing-token"
 	failed, err = Configure(&missing)
 	require.Nil(t, failed)
 	require.Error(t, err)
 	require.Equal(t, refs, references(cfg.Path))
-	require.Equal(t, baseline, testshim.Counter(3))
-	require.Equal(t, attempts, testshim.Counter(4))
-	testshim.Fault(2, pkcs11.CKR_SESSION_COUNT)
+	require.Equal(t, baseline, testshim.Counter(testshim.Live))
+	require.Equal(t, attempts, testshim.Counter(testshim.CloseAttempts))
+	testshim.Fault(testshim.OpenSession, pkcs11.CKR_SESSION_COUNT)
 	failed, err = Configure(cfg)
 	require.Nil(t, failed)
 	nativeCode(t, err, pkcs11.CKR_SESSION_COUNT)
 	require.Equal(t, refs, references(cfg.Path))
-	require.Equal(t, attempts, testshim.Counter(4))
-	testshim.Fault(3, pkcs11.CKR_DEVICE_ERROR)
+	require.Equal(t, attempts, testshim.Counter(testshim.CloseAttempts))
+	testshim.Fault(testshim.CloseSession, pkcs11.CKR_DEVICE_ERROR)
 	wrong := *cfg
 	wrong.TokenLabel = "token2"
 	wrong.Pin = "incorrect-pin"
 	failed, err = Configure(&wrong)
 	require.Nil(t, failed)
 	nativeCode(t, err, pkcs11.CKR_PIN_INCORRECT)
-	require.Equal(t, attempts+1, testshim.Counter(4), "cleanup must be attempted once")
-	require.Equal(t, baseline+1, testshim.Counter(3), "failed close must not claim reclamation")
+	require.Equal(t, attempts+1, testshim.Counter(testshim.CloseAttempts), "cleanup must be attempted once")
+	require.Equal(t, baseline+1, testshim.Counter(testshim.Live), "failed close must not claim reclamation")
 	require.Equal(t, refs, references(cfg.Path))
-	require.Equal(t, finals, testshim.Counter(2))
-	testshim.Fault(0, 0)
+	require.Equal(t, finals, testshim.Counter(testshim.Finalized))
+	testshim.Fault(testshim.NoFault, 0)
 	_, err = healthy.FindAllKeys()
 	require.NoError(t, err)
 	require.NoError(t, healthy.Close())
 	healthy = nil
 	require.Zero(t, references(cfg.Path))
-	require.Zero(t, testshim.Counter(3))
-	require.Equal(t, finals+1, testshim.Counter(2))
+	require.Zero(t, testshim.Counter(testshim.Live))
+	require.Equal(t, finals+1, testshim.Counter(testshim.Finalized))
 }
 
 func TestNativeAEADErrors(t *testing.T) {
 	for _, test := range []struct {
 		name    string
-		faultID uint
+		faultID testshim.FaultID
 		seal    bool
 	}{
-		{"EncryptInit", 4, true},
-		{"Encrypt", 5, true},
-		{"DecryptInit", 6, false},
-		{"Decrypt", 7, false},
+		{"EncryptInit", testshim.EncryptInit, true},
+		{"Encrypt", testshim.Encrypt, true},
+		{"DecryptInit", testshim.DecryptInit, false},
+		{"Decrypt", testshim.Decrypt, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := nativeConfig(t)
@@ -160,6 +160,9 @@ func TestNativeAEADErrors(t *testing.T) {
 			nonce := make([]byte, aead.NonceSize())
 			require.PanicsWithValue(t, "crypto11: incorrect nonce length given to GCM", func() {
 				aead.Seal(nil, nonce[:len(nonce)-1], nil, nil)
+			})
+			require.PanicsWithValue(t, "crypto11: incorrect nonce length given to GCM", func() {
+				aead.Open(nil, nonce[:len(nonce)-1], nil, nil)
 			})
 			sentinel := errors.New("unrelated panic")
 			other := aead.(genericAead)
@@ -182,7 +185,7 @@ func TestNativeAEADErrors(t *testing.T) {
 				require.Nil(t, result)
 				nativeCode(t, err, pkcs11.CKR_DEVICE_ERROR)
 			}
-			testshim.Fault(0, 0)
+			testshim.Fault(testshim.NoFault, 0)
 		})
 	}
 }

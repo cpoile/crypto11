@@ -141,6 +141,10 @@ func (g genericAead) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
 }
 
 func (g genericAead) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, error) {
+	if len(nonce) != g.NonceSize() {
+		panic("crypto11: incorrect nonce length given to GCM")
+	}
+
 	var result []byte
 	if err := g.key.context.withSession(func(session *pkcs11Session) (err error) {
 		mech, params, err := g.makeMech(nonce, additionalData, false)
