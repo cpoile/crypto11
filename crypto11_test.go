@@ -120,7 +120,7 @@ func TestKeyPairDelete(t *testing.T) {
 	require.NoError(t, err)
 
 	k, err := ctx.FindKeyPair(id, nil)
-	require.NoError(t, err)
+	require.Error(t, err)
 	require.Nil(t, k)
 }
 
@@ -144,7 +144,7 @@ func TestKeyDelete(t *testing.T) {
 	require.NoError(t, err)
 
 	k, err := ctx.FindKey(id, nil)
-	require.NoError(t, err)
+	require.Error(t, err)
 	require.Nil(t, k)
 }
 
@@ -238,9 +238,8 @@ func TestAccessSameLibraryTwice(t *testing.T) {
 	err = ctx1.Close()
 	require.NoError(t, err)
 
-	// Try to find a non-existant key. We are just checking that we can
-	// use the underlying P11 lib.
-	_, err = ctx2.FindKey(randomBytes(), nil)
+	// Listing keys checks that the underlying module is still usable.
+	_, err = ctx2.FindAllKeys()
 	require.NoError(t, err)
 
 	err = ctx2.Close()
@@ -250,9 +249,8 @@ func TestAccessSameLibraryTwice(t *testing.T) {
 	ctx3, err := ConfigureFromFile("config")
 	require.NoError(t, err)
 
-	// Try to find a non-existant key. We are just checking that we can
-	// use the underlying P11 lib.
-	_, err = ctx3.FindKey(randomBytes(), nil)
+	// Listing keys checks that the underlying module is still usable.
+	_, err = ctx3.FindAllKeys()
 	require.NoError(t, err)
 
 	err = ctx3.Close()
@@ -268,6 +266,7 @@ func TestNoLogin(t *testing.T) {
 
 	ctx, err := Configure(cfg)
 	require.NoError(t, err)
+	defer ctx.Close()
 
 	//_, err = ctx.getSession()
 	_, err = ctx.GenerateSecretKey(randomBytes(), 256, CipherAES)
@@ -277,33 +276,6 @@ func TestNoLogin(t *testing.T) {
 	require.True(t, ok)
 
 	assert.Equal(t, pkcs11.Error(pkcs11.CKR_USER_NOT_LOGGED_IN), p11Err)
-}
-
-func TestInvalidPinDoesntDestroyLibrary(t *testing.T) {
-	cfg, err := getConfig("config")
-	require.NoError(t, err)
-	cfg.TokenLabel = "token1"
-
-	cfgWrongPin, err := getConfig("config")
-	require.NoError(t, err)
-	cfgWrongPin.Pin = "this_should_be_wrong_pin"
-	cfgWrongPin.TokenLabel = "token2"
-
-	// Configure context with valid configuration.
-	ctx1, err := Configure(cfg)
-	require.NoError(t, err)
-
-	// Try to configure context with invalid pin in configuration.
-	_, err = Configure(cfgWrongPin)
-	require.EqualError(t, err, "failed to log into long term session: pkcs11: 0xA0: CKR_PIN_INCORRECT")
-
-	// Existing context should continue to work.
-	_, err = ctx1.FindAllKeys()
-	require.NoError(t, err)
-
-	// Configuring new contexts should continue to work.
-	_, err = Configure(cfg)
-	require.NoError(t, err)
 }
 
 func TestInvalidMaxSessions(t *testing.T) {

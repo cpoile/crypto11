@@ -44,6 +44,14 @@ const (
 
 var errBadGCMNonceSize = errors.New("nonce slice too small to hold IV")
 
+// SealError identifies an operation failure returned by Seal's session or native
+// operation. Callers may recover this exact type without hiding programmer panics.
+// Unwrap preserves the underlying error for errors.Is and errors.As.
+type SealError struct{ Err error }
+
+func (e *SealError) Error() string { return e.Err.Error() }
+func (e *SealError) Unwrap() error { return e.Err }
+
 type genericAead struct {
 	key *SecretKey
 
@@ -95,6 +103,9 @@ func (g genericAead) Overhead() int {
 }
 
 func (g genericAead) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
+	if len(nonce) != g.NonceSize() {
+		panic("crypto11: incorrect nonce length given to GCM")
+	}
 
 	var result []byte
 	if err := g.key.context.withSession(func(session *pkcs11Session) (err error) {
@@ -106,11 +117,11 @@ func (g genericAead) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
 		defer params.Free()
 
 		if err = session.ctx.EncryptInit(session.handle, mech, g.key.handle); err != nil {
-			err = fmt.Errorf("C_EncryptInit: %v", err)
+			err = fmt.Errorf("C_EncryptInit: %w", err)
 			return
 		}
 		if result, err = session.ctx.Encrypt(session.handle, plaintext); err != nil {
-			err = fmt.Errorf("C_Encrypt: %v", err)
+			err = fmt.Errorf("C_Encrypt: %w", err)
 			return
 		}
 
@@ -122,7 +133,7 @@ func (g genericAead) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
 
 		return
 	}); err != nil {
-		panic(err)
+		panic(&SealError{Err: err})
 	} else {
 		dst = append(dst, result...)
 	}
@@ -139,11 +150,11 @@ func (g genericAead) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte
 		defer params.Free()
 
 		if err = session.ctx.DecryptInit(session.handle, mech, g.key.handle); err != nil {
-			err = fmt.Errorf("C_DecryptInit: %v", err)
+			err = fmt.Errorf("C_DecryptInit: %w", err)
 			return
 		}
 		if result, err = session.ctx.Decrypt(session.handle, ciphertext); err != nil {
-			err = fmt.Errorf("C_Decrypt: %v", err)
+			err = fmt.Errorf("C_Decrypt: %w", err)
 			return
 		}
 		return

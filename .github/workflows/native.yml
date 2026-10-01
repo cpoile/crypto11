@@ -1,0 +1,26 @@
+name: Native qualification
+on:
+  pull_request:
+  push:
+    branches: [v1-maintenance]
+permissions:
+  contents: read
+jobs:
+  softhsm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build pinned native fixture
+        run: docker build --platform linux/amd64 -t crypto11-fixture -f testdata/softhsm/Dockerfile testdata/softhsm
+      - name: Record source and fixture
+        run: |
+          git rev-parse HEAD
+          docker image inspect crypto11-fixture --format '{{.Id}}'
+      - name: Mandatory real native tests
+        run: timeout -k 5s 900s docker run --rm --name crypto11-qualification --platform linux/amd64 -v "$PWD:/source:ro" crypto11-fixture bash /source/testdata/softhsm/run.sh
+      - name: Remove qualification container
+        if: always()
+        run: docker rm -f crypto11-qualification || true
