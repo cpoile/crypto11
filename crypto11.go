@@ -426,6 +426,12 @@ func Configure(config *Config) (*Context, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create module context: %w", err)
 	}
+	configured := false
+	defer func() {
+		if !configured {
+			modCtx.Close()
+		}
+	}()
 	instance := &Context{
 		cfg: config,
 		ctx: modCtx,
@@ -433,13 +439,11 @@ func Configure(config *Config) (*Context, error) {
 
 	slots, err := instance.ctx.GetSlotList(true)
 	if err != nil {
-		instance.ctx.Close()
 		return nil, errors.WithMessage(err, "failed to list PKCS#11 slots")
 	}
 
 	instance.slot, instance.token, err = instance.findToken(slots, config.TokenSerial, config.TokenLabel, config.SlotNumber)
 	if err != nil {
-		instance.ctx.Close()
 		return nil, err
 	}
 
@@ -457,9 +461,15 @@ func Configure(config *Config) (*Context, error) {
 	// used to keep a connection alive to the token to ensure object handles and the log in status remain accessible.
 	instance.persistentSession, err = instance.ctx.OpenSession(instance.slot, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKF_RW_SESSION)
 	if err != nil {
-		instance.ctx.Close()
 		return nil, errors.WithMessagef(err, "failed to create long term session")
 	}
+
+	defer func() {
+		if !configured {
+			// Preserve the primary initialization error even if native cleanup fails.
+			_ = instance.ctx.CloseSession(instance.persistentSession)
+		}
+	}()
 
 	if !config.LoginNotSupported {
 		// Try to log in our persistent session. This may fail with CKR_USER_ALREADY_LOGGED_IN if another instance
@@ -474,12 +484,12 @@ func Configure(config *Config) (*Context, error) {
 			pErr, isP11Error := err.(pkcs11.Error)
 
 			if !isP11Error || pErr != pkcs11.CKR_USER_ALREADY_LOGGED_IN {
-				instance.ctx.Close()
 				return nil, errors.WithMessagef(err, "failed to log into long term session")
 			}
 		}
 	}
 
+	configured = true
 	return instance, nil
 }
 
