@@ -5,6 +5,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 cp -a /source/. "$work/source"
 cd "$work/source"
+python3 -m unittest discover -s testdata/softhsm -p 'test_*.py'
 python3 testdata/softhsm/prepare.py "$work/fixture"
 export SOFTHSM2_CONF="$work/fixture/softhsm2.conf"
 cp "$work/fixture/config.json" config

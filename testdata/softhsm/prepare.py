@@ -15,9 +15,13 @@ assert not any(root.iterdir()), "fixture directory must be empty"
 os.environ["SOFTHSM2_CONF"] = str(root / "softhsm2.conf")
 pin = secrets.token_hex(16)
 for label in ("token1", "token2"):
-    subprocess.run(["softhsm2-util", "--init-token", "--free", "--label", label,
+    try:
+        subprocess.run(["softhsm2-util", "--init-token", "--free", "--label", label,
                     "--so-pin", secrets.token_hex(16), "--pin", pin],
-                   check=True, timeout=15, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                       check=True, timeout=15, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        # These exceptions contain argv, including both generated PINs.
+        raise SystemExit("SoftHSM token provisioning failed") from None
 (root / "config.json").write_text(json.dumps({"Path": "/usr/lib/softhsm/libsofthsm2.so",
     "TokenLabel": "token1", "Pin": pin, "Plaintext": secrets.token_hex(24), "MaxSessions": 4}))
 (root / "config.json").chmod(0o600)

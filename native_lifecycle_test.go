@@ -137,8 +137,17 @@ func TestNativeFailureOwnership(t *testing.T) {
 }
 
 func TestNativeAEADErrors(t *testing.T) {
-	for _, operation := range []uint{4, 5, 6, 7} {
-		t.Run(map[uint]string{4: "EncryptInit", 5: "Encrypt", 6: "DecryptInit", 7: "Decrypt"}[operation], func(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		faultID uint
+		seal    bool
+	}{
+		{"EncryptInit", 4, true},
+		{"Encrypt", 5, true},
+		{"DecryptInit", 6, false},
+		{"Decrypt", 7, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			cfg := nativeConfig(t)
 			ctx, err := Configure(cfg)
 			require.NoError(t, err)
@@ -157,8 +166,8 @@ func TestNativeAEADErrors(t *testing.T) {
 			other.makeMech = func([]byte, []byte, bool) ([]*pkcs11.Mechanism, *pkcs11.GCMParams, error) { panic(sentinel) }
 			require.PanicsWithValue(t, sentinel, func() { other.Seal(nil, nonce, nil, nil) })
 			ciphertext := aead.Seal(nil, nonce, []byte("fixture"), nil)
-			testshim.Fault(operation, pkcs11.CKR_DEVICE_ERROR)
-			if operation < 6 {
+			testshim.Fault(test.faultID, pkcs11.CKR_DEVICE_ERROR)
+			if test.seal {
 				func() {
 					defer func() {
 						failure, ok := recover().(*SealError)
