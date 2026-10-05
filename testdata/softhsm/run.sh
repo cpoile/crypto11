@@ -17,7 +17,7 @@ go version
 gcc --version | head -1
 dpkg-query -W softhsm2 libsofthsm2
 # A dedicated run starts with no leaked contexts from older upstream tests.
-go test -race -tags=crypto11_testshim -count=1 -timeout=120s -run '^(TestInvalidPinDoesntDestroyLibrary|TestNativeFailureOwnership|TestNativeAEADErrors)$' .
+go test -race -tags=crypto11_testshim -count=1 -timeout=120s -run '^(TestInvalidPinDoesntDestroyLibrary|TestNativeFailureOwnership|TestNativeAEADErrors|TestFreshLogin.*)$' .
 # Start the broad suite with a fresh store, independent of injected operations.
 python3 testdata/softhsm/prepare.py "$work/full-fixture"
 export SOFTHSM2_CONF="$work/full-fixture/softhsm2.conf"

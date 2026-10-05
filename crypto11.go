@@ -166,7 +166,7 @@ func (k *pkcs11PrivateKey) Delete() error {
 // A Context stores the connection state to a PKCS#11 token. Use Configure or ConfigureFromFile to create a new
 // Context. Call Close when finished with the token, to free up resources.
 //
-// All functions, except Close, are safe to call from multiple goroutines.
+// All functions, except Close and LogoutAndClose, are safe to call from multiple goroutines.
 type Context struct {
 	// Atomic fields must be at top (according to the package owners)
 	closed pool.AtomicBool
@@ -181,6 +181,9 @@ type Context struct {
 	// persistentSession is a session held open so we can be confident handles and login status
 	// persist for the duration of this context
 	persistentSession pkcs11.SessionHandle
+
+	// freshLogin records actual successful authentication, independently of mutable Config.
+	freshLogin bool
 }
 
 // Signer is a PKCS#11 key that implements crypto.Signer.
@@ -266,6 +269,10 @@ type Config struct {
 
 	// User PIN (password).
 	Pin string
+
+	// RequireFreshLogin rejects CKR_USER_ALREADY_LOGGED_IN rather than accepting
+	// another context's authentication. It is incompatible with LoginNotSupported.
+	RequireFreshLogin bool
 
 	// Maximum number of concurrent sessions to open. If zero, DefaultMaxSessions is used.
 	// Otherwise, the value specified must be at least 2.
@@ -390,6 +397,9 @@ func (mc moduleCtx) Close() {
 
 // Configure creates a new Context based on the supplied PKCS#11 configuration.
 func Configure(config *Config) (*Context, error) {
+	if config.RequireFreshLogin && config.LoginNotSupported {
+		return nil, errors.New("fresh login requires login support")
+	}
 	// Check for exactly one way to select a token
 	var fields []string
 	if config.SlotNumber != nil {
@@ -483,12 +493,13 @@ func Configure(config *Config) (*Context, error) {
 
 			pErr, isP11Error := err.(pkcs11.Error)
 
-			if !isP11Error || pErr != pkcs11.CKR_USER_ALREADY_LOGGED_IN {
+			if config.RequireFreshLogin || !isP11Error || pErr != pkcs11.CKR_USER_ALREADY_LOGGED_IN {
 				return nil, errors.WithMessagef(err, "failed to log into long term session")
 			}
 		}
 	}
 
+	instance.freshLogin = config.RequireFreshLogin && err == nil
 	configured = true
 	return instance, nil
 }
@@ -562,4 +573,25 @@ func (c *Context) Close() error {
 	c.ctx.Close()
 
 	return nil
+}
+
+// LogoutAndClose releases a temporary context that performed a strict fresh
+// login. It drains the pool, explicitly logs out, then releases all resources
+// even if logout fails. A logout error is preserved; close/finalize errors have
+// the same semantics as Close. Call exactly once, instead of Close.
+//
+// WARNING: PKCS#11 logout affects ALL of the application's same-token sessions,
+// not just this context. Use only for temporary authentication checks, with no
+// key operations, and only when the application requires strict fresh login on
+// every context. Never use this to close an established operational context.
+func (c *Context) LogoutAndClose() error {
+	if !c.freshLogin || c.closed.Get() {
+		return errors.New("temporary logout requires an open fresh-login context")
+	}
+	c.closed.Set(true)
+	c.pool.Close()
+	err := c.ctx.Logout(c.persistentSession)
+	_ = c.ctx.CloseSession(c.persistentSession)
+	c.ctx.Close()
+	return errors.WithMessage(err, "failed to log out temporary context")
 }

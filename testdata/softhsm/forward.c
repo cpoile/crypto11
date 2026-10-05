@@ -9,14 +9,14 @@ static CK_FUNCTION_LIST_PTR real;
 static CK_FUNCTION_LIST functions;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static CK_SESSION_HANDLE handles[4096];
-static unsigned long live, opened, closed, finalized, close_attempts, invalid_closes;
+static unsigned long live, opened, closed, finalized, close_attempts, invalid_closes, logout_attempts;
 static unsigned long fault, fault_code;
 
 /* Indices: opens, closes, finalizes, live handles, close attempts, invalid closes. */
 unsigned long test_counter(unsigned long index) {
     pthread_mutex_lock(&lock);
-    unsigned long values[] = {opened, closed, finalized, live, close_attempts, invalid_closes};
-    unsigned long result = index < 6 ? values[index] : 0;
+    unsigned long values[] = {opened, closed, finalized, live, close_attempts, invalid_closes, logout_attempts};
+    unsigned long result = index < 7 ? values[index] : 0;
     pthread_mutex_unlock(&lock);
     return result;
 }
@@ -62,6 +62,11 @@ static CK_RV close_session(CK_SESSION_HANDLE handle) {
     pthread_mutex_unlock(&lock);
     return rv;
 }
+static CK_RV logout_session(CK_SESSION_HANDLE handle) {
+    pthread_mutex_lock(&lock); logout_attempts++; pthread_mutex_unlock(&lock);
+    CK_RV rv = injected(8);
+    return rv ? rv : real->C_Logout(handle);
+}
 static CK_RV finalize(CK_VOID_PTR args) {
     CK_RV rv = real->C_Finalize(args);
     if (rv == CKR_OK) {
@@ -93,6 +98,7 @@ CK_RV C_GetFunctionList(CK_FUNCTION_LIST_PTR_PTR out) {
         functions.C_OpenSession = open_session;
         functions.C_CloseSession = close_session;
         functions.C_Finalize = finalize;
+        functions.C_Logout = logout_session;
         functions.C_EncryptInit = encrypt_init;
         functions.C_Encrypt = encrypt;
         functions.C_DecryptInit = decrypt_init;
