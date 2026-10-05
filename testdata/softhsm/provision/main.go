@@ -2,6 +2,7 @@
 package main
 
 import (
+	"encoding/json"
 	crypto11 "github.com/eclipse-keypont/crypto11"
 	"github.com/miekg/pkcs11"
 	"os"
@@ -45,6 +46,21 @@ func main() {
 		}
 		generate(c, label, label, bits, attrs)
 	}
+	data, err := os.ReadFile(os.Args[1])
+	if err != nil {
+		panic("fixture config unreadable")
+	}
+	var cfg crypto11.Config
+	if json.Unmarshal(data, &cfg) != nil {
+		panic("fixture config invalid")
+	}
+	cfg.TokenLabel = "token2"
+	sibling, err := crypto11.Configure(&cfg)
+	if err != nil {
+		panic("second fixture configure failed")
+	}
+	defer sibling.Close()
+	generate(sibling, "permitted", "permitted", 256, nil)
 }
 func generate(c *crypto11.Context, label, id string, bits int, values map[uint]interface{}) {
 	attrs, err := crypto11.NewAttributeSetWithIDAndLabel([]byte(id), []byte(label))
