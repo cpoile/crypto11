@@ -34,6 +34,7 @@ const (
 	Live
 	CloseAttempts
 	InvalidCloses
+	LogoutAttempts
 )
 const (
 	NoFault FaultID = iota
@@ -44,6 +45,7 @@ const (
 	Encrypt
 	DecryptInit
 	Decrypt
+	Logout
 )
 
 // Open intentionally retains the module so counters survive last-owner finalization.

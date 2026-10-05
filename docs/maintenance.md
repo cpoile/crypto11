@@ -20,3 +20,19 @@ The fixture pins Ubuntu 24.04 by digest and SoftHSM 2.6.1-2.2ubuntu3. It provisi
 `testdata/softhsm/prepare.py` and `provision` are reusable operator fixtures for the dependent KMD installed suite. They are never production provisioning APIs. Never export fixture config, token stores or raw native error text as test artifacts.
 
 Keep future patches bounded against this base. Compare upstream fixes before adopting them, retain the native regression, and propose cleanup/error fixes upstream separately. Upstream PR144 is related cleanup work; it is not assumed released. Ed25519, context reconnection policy and migration to v2 are outside this patch.
+
+## Strict temporary authentication
+
+`Config.RequireFreshLogin` is opt-in and requires actual Login success. The
+compatible default still accepts `CKR_USER_ALREADY_LOGGED_IN`. Strict setup
+returns that typed native error and closes only its own opened session/reference.
+`LoginNotSupported` cannot be combined with strict login.
+
+`LogoutAndClose` is only for successful strict temporary authentication checks,
+under an application-wide policy requiring all contexts to use strict login.
+It drains working sessions, explicitly logs out through the persistent session,
+and closes/releases resources on every outcome. It rejects default or closed
+contexts. Logout affects all same-token sessions/private session objects; do not
+use it for operational contexts or generic recovery. A failed logout is returned,
+including already-logged-out; cleanup is attempted once without retry. Session
+close/finalize failures remain unreported, so return is not a reclamation proof.
