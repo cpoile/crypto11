@@ -9,6 +9,9 @@ import (
 )
 
 func main() {
+	if len(os.Args) != 2 && (len(os.Args) != 3 || (os.Args[2] != "replace" && os.Args[2] != "remove")) {
+		panic("usage: provision config [replace|remove]")
+	}
 	c, err := crypto11.ConfigureFromFile(os.Args[1])
 	if err != nil {
 		panic("fixture configure failed")
@@ -24,8 +27,6 @@ func main() {
 		}
 		if os.Args[2] == "replace" {
 			generate(c, "permitted", "replacement", 256, nil)
-		} else if os.Args[2] != "remove" {
-			panic("invalid fixture action")
 		}
 		return
 	}
